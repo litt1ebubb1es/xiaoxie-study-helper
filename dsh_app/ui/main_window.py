@@ -22,6 +22,7 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QDesktopServices, QFont, QIc
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout, QFrame,
     QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
@@ -2050,7 +2051,6 @@ class MainWindow(QMainWindow):
         self.lbl_llm_status = QLabel("")
         self.lbl_llm_status.setWordWrap(True)
         self.lbl_llm_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        f1.addRow("", self.lbl_preset_hint)
         f1.addRow("", self.lbl_llm_status)
         self.cmb_asr = QComboBox()
         for label, key in (("自动选择", "auto"), ("OpenAI 兼容转写服务", "cloud"),
@@ -3551,12 +3551,16 @@ class MainWindow(QMainWindow):
         if self.engine.recording:
             return
         from PySide6.QtWidgets import QInputDialog
-        course, ok = QInputDialog.getText(self, "开始录制", "课程名：",
-                                          text="学堂在线 · 我的课程")
-        if not ok or not course.strip():
+        course = self._ask_course_name("开始录制 · 选课程", self._current_course_title())
+        if not course:
             return
-        title, ok = QInputDialog.getText(self, "开始录制", "这一节的标题：",
-                                         text=f"第 {self.session_list.count() + 1} 节")
+        # 节号按**这门课**已有的节数算，不是全部会话数
+        cid = self.db.find_course(course)
+        have = self.db.count_sessions(cid) if cid else 0
+        title, ok = QInputDialog.getText(
+            self, "开始录制",
+            f"这一节的标题（「{course}」已有 {have} 节）：",
+            text=f"第 {have + 1} 节")
         if not ok:
             return
         try:
@@ -3733,18 +3737,22 @@ class MainWindow(QMainWindow):
         if src.suffix.lower() in (".srt", ".vtt", ".txt", ".md"):
             self._import_transcript(src)
             return
+        course = self._ask_course_name(f"导入 {src.name} · 选课程",
+                                       self._current_course_title())
+        if not course:
+            return
         self.status.showMessage("正在提取音轨…")
         sid = None
         try:
             ensure_dirs()
             if src.suffix.lower() in (".srt", ".vtt"):
                 wav = None
-                cid = self.db.ensure_course("本地导入课程")
+                cid = self.db.ensure_course(course)
                 sid = self.db.create_session(cid, src.stem, source="file")
             else:
                 wav = AUDIO_DIR / f"{int(time.time())}_{src.stem[:20]}.wav"
                 cap.import_media(src, wav)
-                cid = self.db.ensure_course("本地导入课程")
+                cid = self.db.ensure_course(course)
                 sid = self.db.create_session(cid, src.stem, str(wav), source="file")
                 self.db.update_session(sid, duration=cap.audio_duration(wav))
         except Exception as e:
@@ -3926,7 +3934,14 @@ class MainWindow(QMainWindow):
             return
         self.status.showMessage("正在导入…")
         title = (p.get("title") or "").strip()[:60]
-        course = self._current_course_title() or "链接课程"
+        # 归到哪门课要问一次：以前没选会话时静默落到「链接课程」，
+        # 同一门课换个入口进来就变成另一门了
+        course = self._ask_course_name(
+            "从链接导入 · 选课程",
+            self._current_course_title() or self._recent_course_title())
+        if not course:
+            self.status.clearMessage()
+            return
 
         def job():
             return self.engine.import_url(url, course, title, sessdata=sess,
@@ -3954,12 +3969,70 @@ class MainWindow(QMainWindow):
         c = self.db.get_course(str(row["course_id"]))
         return str(c["title"]) if c else ""
 
+    # -- 课程名：可编辑下拉，默认带最近用过的那门 ------------------------
+    def _course_rows(self) -> list:
+        try:
+            return list(self.db.list_courses())
+        except Exception:                          # noqa: BLE001
+            return []
+
+    def _recent_course_title(self) -> str:
+        rows = self._course_rows()
+        return str(rows[0]["title"]) if rows else ""
+
+    def _ask_course_name(self, caption: str, default: str = "") -> str | None:
+        """问课程名：已有课程在下拉里，也能直接敲新的。
+
+        返回去掉首尾空白的课名；取消或留空返回 None，调用方直接放弃本次动作。
+        名字的"是不是同一门课"由 DB.title_key 判（空格/全半角括号/【】前缀会折叠）。
+        """
+        rows = self._course_rows()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(caption)
+        dlg.setMinimumWidth(480)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("课程名（选一个已有的，或直接敲新的）：", dlg))
+        cb = QComboBox(dlg)
+        cb.setEditable(True)
+        cb.setInsertPolicy(QComboBox.NoInsert)
+        cb.setMinimumWidth(420)
+        mapping: dict[str, str] = {}
+        for r in rows:
+            name = str(r["title"])
+            n = int(r["n_sessions"] or 0)
+            disp = f"{name}　—　{n} 节" if n else f"{name}　—　还没有节"
+            cb.addItem(disp, name)
+            mapping[disp] = name
+        pick = (default or self._recent_course_title()).strip()
+        if pick:
+            cb.setCurrentText(pick)
+        lay.addWidget(cb)
+        hint = QLabel("不用每次打全名：多打空格、全半角括号、「【完整版】」这类前缀"
+                      "都会自动归到同一门课。", dlg)
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{theme.TEXT_3};")
+        lay.addWidget(hint)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        # Qt 默认按钮文案是英文，界面其余部分全是中文，这里显式改掉
+        bb.button(QDialogButtonBox.Ok).setText("确定")
+        bb.button(QDialogButtonBox.Cancel).setText("取消")
+        bb.button(QDialogButtonBox.Ok).setDefault(True)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        cb.lineEdit().selectAll()
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        text = cb.currentText().strip()
+        name = (mapping.get(text) or text).strip()
+        return name or None
+
     def _import_transcript(self, src: Path) -> None:
         """零录制：只用字幕/文本建立会话，不需要录任何东西。"""
         from PySide6.QtWidgets import QInputDialog
-        course, ok = QInputDialog.getText(self, f"导入 {src.name}", "课程名：",
-                                          text="学堂在线 · 我的课程")
-        if not ok or not course.strip():
+        course = self._ask_course_name(f"导入 {src.name} · 选课程",
+                                       self._current_course_title())
+        if not course:
             return
         title, ok = QInputDialog.getText(self, "导入字幕/文本", "这一节的标题：",
                                          text=src.stem)

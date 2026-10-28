@@ -12,9 +12,11 @@ knots 表额外保存 l_score / b_score / grade / quadrant，并新增 feedback.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +32,7 @@ CREATE TABLE IF NOT EXISTS courses (
     id           TEXT PRIMARY KEY,
     title        TEXT NOT NULL,
     subject      TEXT DEFAULT '',
+    title_key    TEXT DEFAULT '',        -- 归一化课程名，唯一键：空格/全半角/括号/前缀不再分裂成两门
     created_at   REAL NOT NULL
 );
 
@@ -313,6 +316,43 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
+# 课程名的"同一门课"判定键。只做**无歧义的机械折叠**，不做近义/简称猜测：
+#   NFKC 全角折半角 → casefold → 去掉空白、标点、书名号/方括号/间隔号。
+# 收不到的：繁体、简称（「概率统计」vs「概率论与数理统计」）、错别字——那些交给人工合并。
+_TITLE_STRIP = re.compile(r"[\s\u3000·・\-—–_()（）\[\]【】《》〈〉{}:：,.，。、!！?？'\"“”‘’/\\|~～]+")
+# 括号里是这些词，就是平台标注（【完整版】/（全36讲）），不算课名的一部分；
+# 括号里是「上」「下」「第2版」这类，是真的两门课，必须保留。
+_TAG_WORDS = re.compile(
+    r"^(?:完整版|合集|全集|全\s*\d+\s*[讲集]|共\s*\d+\s*[讲集]|\d+\s*[讲集]|"
+    r"高清|超清|蓝光|[48]\s*k|完结|已完结|收藏版|纯享版|最新版|无删减)$", re.I)
+_TAG_SEG = re.compile(r"[【\[（(]([^】\]）)]{0,24})[】\]）)]")
+
+
+def _drop_tags(s: str) -> str:
+    return _TAG_SEG.sub(
+        lambda m: "" if _TAG_WORDS.match(m.group(1).strip()) else m.group(0), s)
+
+
+def title_key(title: str) -> str:
+    """课程名归一化键。`概率论与数理统计 ` / `（上）` / `【完整版】…` 都折到同一个键。
+
+    只做无歧义的机械折叠（NFKC 全角折半角、去空白标点、去平台标注），
+    不做简称/错别字猜测——「概率统计」和「概率论与数理统计」仍算两门，交给人工合并。
+    """
+    raw0 = unicodedata.normalize("NFKC", title or "")
+    raw = raw0.strip()
+    s = _drop_tags(raw)
+    prev = None
+    while prev != s:                       # 标注可能套着写：带前缀的段连续吃掉
+        prev, s = s, _drop_tags(s)
+    s = _TITLE_STRIP.sub("", s.casefold())
+    if s:
+        return s
+    # 整串只有标注/标点，折没了：退回原文（不 strip，保留「空 vs 空格」的差别），
+    # 别让两门不相干的课塌成同一门
+    return "\x00blank:" + raw0
+
+
 @dataclass
 class KnotRow:
     id: int
@@ -349,6 +389,7 @@ class DB:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self._migrate_columns()
+        self._migrate_course_keys()
         self.conn.commit()
 
     def close(self) -> None:
@@ -385,6 +426,9 @@ class DB:
         "quiz_items": {
             "source": "TEXT DEFAULT 'llm'",
         },
+        "courses": {
+            "title_key": "TEXT DEFAULT ''",
+        },
         "sessions": {
             "video_url": "TEXT DEFAULT ''",
         },
@@ -406,6 +450,35 @@ class DB:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
                 except sqlite3.Error:
                     pass
+
+    # 课程名的归一化键：回填历史数据 + 建唯一索引。
+    # 撞键不删数据：老的那门占住键，后来的加 "#<id尾号>" 区分，交给界面上的合并动作。
+    def _migrate_course_keys(self) -> None:
+        try:
+            rows = self.conn.execute(
+                "SELECT id,title,COALESCE(title_key,'') k FROM courses "
+                "ORDER BY created_at, id").fetchall()
+        except sqlite3.Error:
+            return
+        taken: dict[str, str] = {}
+        for r in rows:
+            key = title_key(str(r["title"] or ""))
+            if key in taken:
+                key = f"{key}#{str(r['id']).rsplit('_', 1)[-1]}"
+            taken[key] = str(r["id"])
+            if (r["k"] or "") != key:
+                try:
+                    self.conn.execute("UPDATE courses SET title_key=? WHERE id=?",
+                                      (key, r["id"]))
+                except sqlite3.Error:
+                    pass
+        try:
+            self.conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_courses_title_key "
+                "ON courses(title_key)")
+        except sqlite3.Error:
+            # 极端脏库（两行同键且都被历史写坏）不阻断启动，只退化为无唯一索引
+            pass
 
     # -- 通用 -----------------------------------------------------------
     def close(self) -> None:
@@ -430,16 +503,65 @@ class DB:
     def get_course(self, course_id: str) -> sqlite3.Row | None:
         rows = self.query("SELECT * FROM courses WHERE id=?", (course_id,))
         return rows[0] if rows else None
+
+    def find_course(self, title: str) -> str | None:
+        """只查不建：给界面算"这门课第几节"用，别为了预览节号把课建出来。"""
+        key = title_key(title)
+        row = self.query("SELECT id FROM courses WHERE title_key=?", (key,))
+        if row:
+            return str(row[0]["id"])
+        row = self.query("SELECT id FROM courses WHERE title=?", ((title or "").strip(),))
+        return str(row[0]["id"]) if row else None
+
     def ensure_course(self, title: str, subject: str = "") -> str:
+        """按归一化键取课，没有再建。同一门课换个空格/括号/前缀不会再分裂成两门。"""
+        title = (title or "").strip() or "未命名课程"
+        key = title_key(title)
+        row = self.query("SELECT id,subject FROM courses WHERE title_key=?", (key,))
+        if row:
+            cid = str(row[0]["id"])
+            if subject and not (row[0]["subject"] or "").strip():
+                self.execute("UPDATE courses SET subject=? WHERE id=?", (subject, cid))
+            return cid
+        # 老库/外部写入可能没回填键，按精确标题再兜一次，顺手补键
         row = self.query("SELECT id FROM courses WHERE title=?", (title,))
         if row:
-            return row[0]["id"]
+            cid = str(row[0]["id"])
+            self.execute("UPDATE courses SET title_key=? WHERE id=?", (key, cid))
+            return cid
         cid = new_id("course")
-        self.execute(
-            "INSERT INTO courses(id,title,subject,created_at) VALUES(?,?,?,?)",
-            (cid, title, subject, time.time()),
-        )
+        try:
+            self.execute(
+                "INSERT INTO courses(id,title,subject,title_key,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (cid, title, subject, key, time.time()),
+            )
+        except sqlite3.IntegrityError:
+            # 并发/多进程同时建同一门：唯一索引挡住了，取已存在的那门
+            row = self.query("SELECT id FROM courses WHERE title_key=?", (key,))
+            if row:
+                return str(row[0]["id"])
+            raise
         return cid
+
+    def list_courses(self) -> list[sqlite3.Row]:
+        """课程列表，最近用过的排前面（录制弹窗的默认值取第一条）。
+
+        比原来的 `SELECT *` 多了 n_sessions / last_at：界面要显示"这门课几节了"，
+        用它算下一节的默认标题，省一次额外查询。
+        """
+        return self.query(
+            """SELECT c.id, c.title, c.subject, c.created_at,
+                      COUNT(s.id) AS n_sessions,
+                      COALESCE(MAX(s.started_at), 0) AS last_at
+                 FROM courses c LEFT JOIN sessions s ON s.course_id = c.id
+                GROUP BY c.id
+                ORDER BY last_at DESC, c.created_at DESC""")
+
+    def count_sessions(self, course_id: str) -> int:
+        rows = self.query("SELECT COUNT(*) c FROM sessions WHERE course_id=?",
+                          (course_id,))
+        return int(rows[0]["c"]) if rows else 0
 
     def create_session(
         self,
@@ -539,9 +661,6 @@ class DB:
     def clear_capture_discards(self) -> None:
         self.conn.execute("DELETE FROM capture_discards")
         self.conn.commit()
-
-    def list_courses(self) -> list[sqlite3.Row]:
-        return self.query("SELECT * FROM courses ORDER BY created_at DESC")
 
     # -- 转写 -----------------------------------------------------------
     def replace_segments(self, session_id: str, segs: Iterable[dict], pass_no: int = 1) -> int:
