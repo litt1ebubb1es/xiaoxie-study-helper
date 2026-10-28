@@ -19,7 +19,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = ROOT / "data" / "models"
+# 模型权重放数据目录里：打包成 exe 后也能落在可写位置（见 config._pick_data_dir）
+try:
+    from .config import DATA_DIR as _DATA_DIR
+
+    MODELS_DIR = _DATA_DIR / "models"
+except Exception:                       # noqa: BLE001
+    MODELS_DIR = ROOT / "data" / "models"
 PIP_MIRROR = "https://mirrors.aliyun.com/pypi/simple/"
 HF_MIRROR = "https://hf-mirror.com"
 

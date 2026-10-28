@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -24,6 +25,16 @@ if str(ROOT) not in sys.path:
 _VENV_SITE = ROOT / ".venv" / "Lib" / "site-packages"
 if _VENV_SITE.is_dir() and str(_VENV_SITE) not in sys.path:
     sys.path.append(str(_VENV_SITE))
+
+# 混合环境（base 解释器 + venv 包）会踩到 "老 brotli + 新 httpx2"：
+# br 压缩的响应会抛 TypeError: process() takes no keyword arguments。
+# 必须在 openai/httpx2 被 import 之前修，见 dsh_app/netfix.py。
+try:
+    from dsh_app.netfix import patch_http_encodings as _patch_http_encodings
+
+    _PATCH_NOTE = _patch_http_encodings()
+except Exception:                                  # noqa: BLE001
+    _PATCH_NOTE = ""
 
 
 APP_USER_MODEL_ID = "Xiaoxie.LearningAssistant"
@@ -44,14 +55,63 @@ def _own_taskbar_identity() -> None:   # 见 main() 里的说明：默认不调�
         pass
 
 
+def _ensure_stdio() -> None:
+    """打包成 exe 后保证输出有去处。
+
+    windowed 版本没有控制台，`sys.stdout` 可能是 None（`print` 会炸）；
+    就算有控制台，用户也看不到——所以要落盘到 `data/logs/app.log`。
+    用户报 bug 时让他把这个文件发回来，我们 `--selftest` 也靠它验证打包结果。
+    """
+    frozen = bool(getattr(sys, "frozen", False))
+    missing = sys.stdout is None or sys.stderr is None
+    if not (frozen or missing):
+        return
+    from dsh_app.config import LOG_DIR
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    fh = open(LOG_DIR / "app.log", "a", encoding="utf-8", buffering=1)
+
+    class _Tee:
+        def __init__(self, *streams):
+            self.streams = [s for s in streams if s is not None]
+
+        def write(self, data):
+            for s in self.streams:
+                try:
+                    s.write(data)
+                    s.flush()
+                except Exception:          # noqa: BLE001
+                    pass
+            return len(data)
+
+        def flush(self):
+            for s in self.streams:
+                try:
+                    s.flush()
+                except Exception:          # noqa: BLE001
+                    pass
+
+        def isatty(self):
+            return False
+
+    out = _Tee(sys.stdout, fh)
+    err = _Tee(sys.stderr, fh)
+    sys.stdout = out
+    sys.stderr = err
+    print(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} 启动 =====")
+
+
 def _selftest() -> int:
-    from dsh_app.config import Settings, ensure_dirs
+    from dsh_app.config import DATA_DIR, Settings, ensure_dirs
     from dsh_app.db import DB
     from dsh_app.pipeline import Engine
 
+    _ensure_stdio()
+    if _PATCH_NOTE:
+        print(f"[http] {_PATCH_NOTE}")
     ensure_dirs()
     s = Settings.load()
-    db = DB(ROOT / "data" / "selftest.db")
+    db = DB(DATA_DIR / "selftest.db")      # 打包后落在可写的数据目录
     eng = Engine(db, s)
     sid = eng.seed_demo("自检课程")
     ana = eng.analyze_session(sid)
@@ -74,14 +134,15 @@ def _selftest() -> int:
 def _shot(out: str) -> int:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
-    from dsh_app.config import Settings
+    from dsh_app.config import DATA_DIR, Settings
     from dsh_app.db import DB
     from dsh_app.pipeline import Engine
     from dsh_app.ui.main_window import MainWindow
 
+    _ensure_stdio()
     app = QApplication.instance() or QApplication([])
     s = Settings.load()
-    db = DB(ROOT / "data" / "selftest.db")
+    db = DB(DATA_DIR / "selftest.db")
     eng = Engine(db, s)
     if not db.list_sessions():
         eng.seed_demo("自检课程")

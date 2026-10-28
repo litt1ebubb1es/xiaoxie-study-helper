@@ -934,6 +934,18 @@ copy data\config.example.json data\config.json
 要求：Windows 10/11（回环录音用 WASAPI，`pyaudiowpatch` 只在 Windows 上有）、Python 3.11+。
 不需要系统装 ffmpeg（`imageio-ffmpeg` 自带一份）。
 
+或者双击 **`首次安装.bat`**：它会找 Python、建 `.venv`、装依赖、生成带图标的启动器、跑一遍自检。
+
+### 发给别人用（不用装 Python）
+
+```bat
+.venv\Scripts\python.exe tools\build_win.py      :: 出 dist\小蟹学习助手\ 和 win64.zip
+```
+
+对方解压 → 双击 `小蟹学习助手.exe` → SmartScreen 点「仍要运行」→ 设置页填 Key。
+数据在程序旁边的 `data\`，整个文件夹拷走就带数据。详细步骤、升级/卸载、
+排错表和打包取舍都在 [docs/安装与分发.md](docs/安装与分发.md)。
+
 ### 配置与密钥
 - 仓库里只有 `data/config.example.json`：所有密钥字段都是空字符串，`base_url` 是公开的阿里云百炼兼容端点，抄一份改名就能用。
 - 不想用云端就把 `llm.backend` 改成 `local`，在设置页点「检测本机模型与算力」，它按你的显存/内存推荐能跑的规格。

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,38 @@ APP_ID = "knot-driven-course-assistant"
 MODEL_DOC_URL = "https://my.feishu.cn/wiki/USFwwLIHIiyWTPkvHfMcESE0noe"
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("DSHK_DATA", ROOT / "data"))
+
+
+def _exe_dir() -> Path | None:
+    """打包成 exe 后"程序所在目录"；源码运行时返回 None。"""
+    if getattr(sys, "frozen", False):       # PyInstaller / py2exe 都设这个标记
+        return Path(sys.executable).resolve().parent
+    return None
+
+
+def _pick_data_dir(base: Path) -> Path:
+    """数据目录：优先"程序旁边"，不可写就退到 %LOCALAPPDATA%。
+
+    发给别人时最省事的形态是"解压即用、数据跟着文件夹走"，所以默认放 exe 旁边；
+    但如果用户把整个文件夹丢进 `C:\\Program Files`（普通账号不可写），
+    这里就自动退到 `%LOCALAPPDATA%\\小蟹学习助手\\data`，不至于一开就崩。
+    """
+    cand = base / "data"
+    try:
+        cand.mkdir(parents=True, exist_ok=True)
+        probe = cand / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return cand
+    except Exception:                       # noqa: BLE001
+        root = Path(os.environ.get("LOCALAPPDATA") or Path.home())
+        fallback = root / APP_NAME / "data"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+DATA_DIR = Path(os.environ.get("DSHK_DATA", "") or
+                _pick_data_dir(_exe_dir() or ROOT))
 CONFIG_PATH = DATA_DIR / "config.json"
 DB_PATH = DATA_DIR / "app.db"
 AUDIO_DIR = DATA_DIR / "audio"
