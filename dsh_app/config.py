@@ -20,6 +20,10 @@ from typing import Any
 APP_NAME = "小蟹学习助手"
 APP_ID = "knot-driven-course-assistant"
 
+# 「怎么导入模型？」按钮的落地页：作者写的图文说明（各家怎么开 key、怎么接本地模型）。
+# 想换文档只改这一行，界面上所有引用都跟着走。
+MODEL_DOC_URL = "https://my.feishu.cn/wiki/USFwwLIHIiyWTPkvHfMcESE0noe"
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("DSHK_DATA", ROOT / "data"))
 CONFIG_PATH = DATA_DIR / "config.json"

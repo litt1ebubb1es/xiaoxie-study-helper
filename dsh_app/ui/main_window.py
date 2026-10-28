@@ -37,8 +37,8 @@ from .. import bili
 from .. import capture as cap
 from .. import maintenance
 from ..cognitive import EVENT_KIND_CN, QUADRANT_CN
-from ..config import (APP_NAME, AUDIO_DIR, CLOUD_PRESETS, DATA_DIR, Settings,
-                      ensure_dirs, provider, vision_of)
+from ..config import (APP_NAME, AUDIO_DIR, CLOUD_PRESETS, DATA_DIR, MODEL_DOC_URL,
+                      Settings, ensure_dirs, provider, vision_of)
 from ..db import DB
 from ..local_deploy import detect_all, one_click_deploy, build_deploy_script
 from ..llm import build_llm
@@ -2051,6 +2051,18 @@ class MainWindow(QMainWindow):
         self.lbl_llm_status = QLabel("")
         self.lbl_llm_status.setWordWrap(True)
         self.lbl_llm_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # 一行小字链接：怎么导入模型（作者的飞书文档，讲各家怎么开 key / 怎么接本地模型）。
+        # 做成按钮而不是富文本，是为了跟「去哪拿 Key？」一致——点了直接开默认浏览器。
+        self.btn_model_doc = QPushButton("怎么导入模型？（图文说明）")
+        self.btn_model_doc.setFlat(True)
+        self.btn_model_doc.setCursor(Qt.PointingHandCursor)
+        self.btn_model_doc.setToolTip(MODEL_DOC_URL)
+        self.btn_model_doc.setStyleSheet(
+            f"QPushButton{{border:none;background:transparent;color:{theme.ACCENT};"
+            f"text-align:left;padding:0;font-size:12px;}}"
+            f"QPushButton:hover{{text-decoration:underline;}}")
+        f1.addRow("", self.lbl_preset_hint)
+        f1.addRow("", self.btn_model_doc)
         f1.addRow("", self.lbl_llm_status)
         self.cmb_asr = QComboBox()
         for label, key in (("自动选择", "auto"), ("OpenAI 兼容转写服务", "cloud"),
@@ -2274,6 +2286,7 @@ class MainWindow(QMainWindow):
         self.cmb_preset.currentIndexChanged.connect(self._on_preset)
         self.btn_models.clicked.connect(self._on_fetch_models)
         self.btn_key_site.clicked.connect(self._on_open_key_site)
+        self.btn_model_doc.clicked.connect(self._on_open_model_doc)
         self.chk_vision_same.toggled.connect(self._on_vision_same)
         self.ed_base.editingFinished.connect(self._on_base_edited)
         self._load_settings_to_widgets()
@@ -2447,6 +2460,15 @@ class MainWindow(QMainWindow):
         if url:
             QDesktopServices.openUrl(QUrl(url))
 
+    def _on_open_model_doc(self) -> None:
+        """打开「怎么导入模型」的图文说明（飞书文档）。"""
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        if not QDesktopServices.openUrl(QUrl(MODEL_DOC_URL)):
+            self.lbl_llm_status.setText(f"没能打开浏览器，链接已复制：{MODEL_DOC_URL}")
+            QApplication.clipboard().setText(MODEL_DOC_URL)
+
     # -- 拉真实模型列表 -------------------------------------------------
     def _on_fetch_models(self) -> None:
         self._collect_settings()
@@ -2469,14 +2491,34 @@ class MainWindow(QMainWindow):
 
     def _models_done(self, res) -> None:
         self.btn_models.setEnabled(True)
-        if not res.models:
-            self.lbl_llm_status.setText(
-                "端点没有返回模型列表（有些自建网关不支持 /models）。"
-                "可以直接在「模型」里手填名字。" + (f" 错误：{res.error}" if res.error else ""))
-            self.lbl_llm_status.setStyleSheet(f"color:{theme.WARN}; font-size:12px;")
-            return
         p = provider(self.cmb_preset.currentData())
         cur = self.cmb_llm_model.currentText().strip()
+        if not res.models:
+            # 端点不给列表（自建网关、502 网关、限流、或 key 无 list 权限）时，
+            # 不要逼用户手打模型名：用这套预设自带的候选填好，直接选。
+            cand = [str(x) for x in (p.get("models") or [])]
+            target = cur or str(p.get("model") or "")
+            if cand:
+                self._fill_models(cand, target)
+                vis = vision_of(cand, p.get("vision_models"))
+                self._fill_vision(vis or cand,
+                                  self.cmb_vision.currentText().strip()
+                                  or str(p.get("vision_model") or ""))
+                detail = f"（{res.error}）" if res.error else ""
+                self.lbl_llm_status.setText(
+                    f"⚠ 端点没返回模型列表，已按「{p.get('label', '当前服务商')}」"
+                    f"填好 {len(cand)} 个常见模型名，直接选即可{detail}")
+            else:
+                # 自建端点（custom / lmstudio）没有预设候选：至少把用户已配的那个
+                # 留在下拉里可选，别给一个空列表
+                if target:
+                    self._fill_models([target], target)
+                self.lbl_llm_status.setText(
+                    "⚠ 端点没返回模型列表。这个服务商没有内置候选，"
+                    "在「模型」里填一个你在服务端加载的名字即可。"
+                    + (f" 错误：{res.error}" if res.error else ""))
+            self.lbl_llm_status.setStyleSheet(f"color:{theme.WARN}; font-size:12px;")
+            return
         self._fill_models(sorted(res.models), cur)
         vision = vision_of(res.models, p.get("vision_models"))
         self._fill_vision(vision or sorted(res.models), self.cmb_vision.currentText().strip())

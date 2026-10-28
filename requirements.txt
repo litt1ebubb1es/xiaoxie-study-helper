@@ -11,6 +11,10 @@ openai>=1.30                # 统一接入层：云端/本地一律 OpenAI 兼�
 imageio-ffmpeg>=0.5         # 自带 ffmpeg 二进制，用于视频导入（不必系统装 ffmpeg）
 pillow>=10.0                # 截图处理（F3 预留）
 httpx>=0.27                 # 探测用
+# 注意：如果这台机器上装了 brotli，请确保 >=1.2（`pip show brotli`）。
+# 老版本 1.1.0 的 C 实现不认 httpx2 传的 output_buffer_limit，br 压缩的响应会报
+# TypeError: process() takes no keyword arguments。没装或版本旧都不影响使用：
+# dsh_app/netfix.py 会自动把 br 摘掉，改走 gzip。
 pytest>=8.0                 # 测试
 
 # 可选：本地离线转写（不装则自动回落到侧车字幕 / 演示后端）

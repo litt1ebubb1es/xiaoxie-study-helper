@@ -432,3 +432,40 @@ def test_archive_all_button_feeds_the_knowledge_base(win):
     assert len(docs) == 1
     win._refresh_kb_auto_info()
     assert "已归档 1 节" in win.lbl_kb_auto.text()
+
+
+# -- 设置页的「怎么导入模型？」入口 -------------------------------------------
+def test_model_doc_button_points_at_doc(win):
+    """给用户一个入口去读图文说明；链接改了就跟着变，不硬编码在界面里。"""
+    from dsh_app.config import MODEL_DOC_URL
+
+    btn = win.btn_model_doc
+    assert btn.text().startswith("怎么导入模型")
+    assert btn.toolTip() == MODEL_DOC_URL
+    assert MODEL_DOC_URL.startswith("https://")
+
+
+def test_model_doc_button_opens_url(win, monkeypatch):
+    from PySide6.QtGui import QDesktopServices
+
+    from dsh_app.config import MODEL_DOC_URL
+
+    opened: list[str] = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: (opened.append(url.toString()), True)[1]))
+    win.btn_model_doc.click()
+    assert opened == [MODEL_DOC_URL]
+
+
+def test_model_doc_button_falls_back_to_clipboard(win, monkeypatch):
+    """浏览器打不开时不要把用户晾在那儿：把链接复制到剪贴板并说清楚。"""
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QApplication
+
+    from dsh_app.config import MODEL_DOC_URL
+
+    monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(lambda url: False))
+    QApplication.clipboard().setText("")
+    win.btn_model_doc.click()
+    assert QApplication.clipboard().text() == MODEL_DOC_URL
+    assert "怎么导入模型" in win.lbl_llm_status.text() or "链接" in win.lbl_llm_status.text()

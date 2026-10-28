@@ -27,6 +27,48 @@ HARDEN_HINT = ("重要：直接输出最终结果本身。不要任何推理过�
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
 
+# ------------------------------------------------------------ /models 列表
+# 为什么不用 SDK 的 client.models.list()：
+# 它对"不是标准 OpenAI 的网关"太脆——返回 `{}` 抛 "NoneType is not iterable"，
+# 返回 HTML 抛 "'str' object has no attribute ..."，br 压缩撞上老 brotli 时抛
+# "process() takes no keyword arguments"。这三句都不是用户能懂的，而且都只在
+# "端点没给模型列表"时才出现。这里自己发一个请求，按常见形态取名字，
+# 取不到就返回空列表 + 一句人话，界面上再用预设候选兜底（不让用户手填）。
+_MODEL_SEQ_KEYS = ("data", "models", "result", "items", "list")
+_MODEL_NAME_KEYS = ("id", "name", "model", "model_name", "modelId")
+
+
+def model_names_of(payload: Any) -> list[str]:
+    """从几种常见 /models 形态里取模型名。取不到就是空列表，不猜。"""
+    seq: Any = payload
+    if isinstance(payload, dict):
+        for key in _MODEL_SEQ_KEYS:
+            v = payload.get(key)
+            if isinstance(v, list):
+                seq = v
+                break
+        else:
+            seq = []
+    out: list[str] = []
+    if isinstance(seq, list):
+        for it in seq:
+            if isinstance(it, str) and it.strip():
+                out.append(it.strip())
+            elif isinstance(it, dict):
+                for k in _MODEL_NAME_KEYS:
+                    v = it.get(k)
+                    if isinstance(v, str) and v.strip():
+                        out.append(v.strip())
+                        break
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for n in out:
+        if n not in seen:
+            seen.add(n)
+            uniq.append(n)
+    return uniq[:80]
+
+
 def parse_json_loose(raw: str) -> Any:
     """从模型回复里抠出 JSON（dict 或 list）。抠不出来返回 None。
 
@@ -129,11 +171,51 @@ class LLMClient:
     # -- 内部 -----------------------------------------------------------
     def _c(self):
         if self._client is None:
+            # 老 brotli + 新 httpx2 会让 br 响应报 TypeError: process() ...，
+            # 建客户端之前先把这个坑填掉（不装东西，见 netfix.py）
+            try:
+                from .netfix import patch_http_encodings
+
+                patch_http_encodings()
+            except Exception:              # noqa: BLE001
+                pass
             from openai import OpenAI
             self._client = OpenAI(base_url=self.base_url,
                                   api_key=self.api_key or "sk-local",
                                   timeout=self.timeout_s)
         return self._client
+
+    def list_models(self) -> tuple[list[str], str]:
+        """GET {base_url}/models，返回 (模型名, 错误说明)。
+
+        自己解 JSON，绕开 SDK 的解析器（理由见 `model_names_of` 上面的注释）。
+        网络错/HTTP 4xx/非 JSON/没有模型名，都返回空列表 + 一句能看懂的原因，
+        绝不抛异常——界面上要能区分"端点不给列表"和"端点连不上"。
+        """
+        import httpx
+
+        url = f"{self.base_url}/models"
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        try:
+            with httpx.Client(timeout=min(float(self.timeout_s or 20.0), 20.0),
+                              follow_redirects=True) as c:
+                r = c.get(url, headers=headers)
+        except Exception as e:                         # noqa: BLE001
+            return [], f"{type(e).__name__}: {str(e)[:120]}"
+        if r.status_code >= 400:
+            body = (r.text or "").strip().replace("\n", " ")[:100]
+            return [], f"HTTP {r.status_code} {body}".strip()
+        try:
+            payload = r.json()
+        except Exception:                              # noqa: BLE001
+            ctype = r.headers.get("content-type", "?")
+            return [], f"返回的不是 JSON（content-type: {ctype}）"
+        names = model_names_of(payload)
+        if not names:
+            return [], "端点返回了 JSON 但没有模型名（有些自建网关只实现 /chat/completions）"
+        return names, ""
 
     @property
     def configured(self) -> bool:
@@ -166,10 +248,13 @@ class LLMClient:
             res.error = f"{type(e).__name__}: {e}"
             return res
         try:
-            models = self._c().models.list()
-            res.models = [m.id for m in getattr(models, "data", [])][:50]
-            res.model_ok = (not res.models) or (self.model in res.models)
-        except Exception as e:
+            models, err = self.list_models()
+            res.models = models
+            # 空列表不算失败：网关不支持 /models 是常态，界面用预设候选兜底
+            res.model_ok = (not models) or (self.model in models)
+            if err:
+                res.error = f"模型列表失败：{err}"
+        except Exception as e:                         # noqa: BLE001
             res.error = f"模型列表失败：{type(e).__name__}: {str(e)[:120]}"
         if deep:
             try:
