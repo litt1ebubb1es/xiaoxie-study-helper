@@ -936,7 +936,7 @@ docs/screenshots/  四个页签的实际渲染截图
 ## 8. 从源码跑起来（换一台机器）
 
 ```bash
-git clone https://github.com/<你的账号>/xiaoxie-study-helper.git
+git clone https://github.com/litt1ebubb1es/xiaoxie-study-helper.git
 cd xiaoxie-study-helper
 
 py -3.11 -m venv .venv
