@@ -203,7 +203,10 @@ def _post(dist_dir: Path) -> None:
 def _zip(dist_dir: Path) -> Path:
     from dsh_app import __version__          # 版本号跟着包走，不用手改
 
-    out = DIST / f"{APP_NAME}-v{__version__}-win64.zip"
+    # zip 名用 ASCII：中文名在 HTTP 下载路径 / Release 资产里会被吞掉
+    # （实测 gh release upload 把「小蟹学习助手-v0.1.0-win64.zip」变成「-v0.1.0-win64.zip」）。
+    # 文件夹名保持中文，用户解压后看到的是熟悉的名称。
+    out = DIST / f"xiaoxie-study-helper-v{__version__}-win64.zip"
     if out.exists():
         out.unlink()
     skip_dirs = {("data", "audio"), ("data", "logs"), ("data", "export"),
