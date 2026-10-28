@@ -1,0 +1,38 @@
+# ---- 虚拟环境 / 缓存
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# ---- 运行时数据：API Key、录音、数据库、模型权重、日志全在这里，不进仓库
+data/*
+!data/config.example.json
+!data/selftest.db
+
+# ---- 视频工程的中间产物（逐帧 PNG 与成片几百 MB）
+docs/video/work/
+docs/video/out/
+docs/video/**/__pycache__/
+# 背景音乐换了机器没有意义，且原曲许可见 assets/README 说明
+docs/video/assets/*.mp3
+
+# ---- 第三方参考材料（只用于阅读，版权不属于本项目）
+_ref/
+
+# ---- 打包与快捷方式
+*.exe
+*.lnk
+build/
+dist/
+
+# ---- 编辑器 / 系统垃圾
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- 临时
+tmp/
+*.log

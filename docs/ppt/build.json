@@ -1,0 +1,33 @@
+{
+  "slides": 10,
+  "size_in": [
+    13.333,
+    7.5
+  ],
+  "auto_fixes": {
+    "10": [
+      {
+        "kind": "shrink",
+        "detail": "把「说不清哪里没懂」变成：32pt → 28pt"
+      }
+    ]
+  },
+  "counts": {
+    "shrink": 1,
+    "overflow": 0
+  },
+  "path": "docs\\ppt\\小蟹学习助手-介绍.pptx",
+  "kinds": [
+    "cover_hero",
+    "statement",
+    "grid",
+    "flow",
+    "image",
+    "image",
+    "table",
+    "kpi",
+    "compare",
+    "closing"
+  ],
+  "animated_shapes": 118
+}

@@ -1,0 +1,85 @@
+{
+  "llm": {
+    "backend": "cloud",
+    "preset": "dashscope",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key": "",
+    "model": "deepseek-v4.1-flash-1017",
+    "vision_model": "deepseek-v4.1-flash-1017",
+    "temperature": 0.3,
+    "timeout_s": 120.0,
+    "preload_on_start": false
+  },
+  "autocap": {
+    "enabled": false,
+    "interval_s": 8.0,
+    "change_threshold": 0.12,
+    "min_gap_s": 30.0,
+    "max_per_hour": 40
+  },
+  "source": {
+    "bili_sessdata": "",
+    "prefer": "auto"
+  },
+  "asr": {
+    "backend": "auto",
+    "base_url": "",
+    "api_key": "",
+    "realtime_model": "paraformer-realtime-v2",
+    "precise_model": "paraformer-v2",
+    "language": "zh",
+    "offline_seed": 20261001,
+    "local_size": "small",
+    "local_device": "auto",
+    "allow_demo": false
+  },
+  "capture": {
+    "device_name": "",
+    "sample_rate": 16000,
+    "channels": 2,
+    "block_ms": 40,
+    "save_raw_audio": true,
+    "keep_audio_days": 7,
+    "audio_compress": true,
+    "audio_flac_rate": 16000,
+    "detect_pauses": true,
+    "pause_min_s": 3.0,
+    "pause_long_s": 20.0,
+    "auto_web_capture": true,
+    "web_start_after_s": 2.5,
+    "web_stop_after_s": 25.0,
+    "web_browsers": "",
+    "web_min_keep_s": 8.0
+  },
+  "cognitive": {
+    "window_s": 60.0,
+    "step_s": 15.0,
+    "w_term": 0.35,
+    "w_speed": 0.25,
+    "w_sentence": 0.15,
+    "w_symbol": 0.15,
+    "w_pause": 0.1,
+    "tau": 0.5,
+    "bias": 0.0,
+    "quadrant_percentile": 70.0,
+    "decay_sigma_ratio": 0.3333333333333333,
+    "w_load": 0.6,
+    "w_behavior": 0.4,
+    "grade_strong": 0.65,
+    "grade_medium": 0.45,
+    "merge_gap_s": 30.0,
+    "knot_half_width_s": 25.0,
+    "eta": 0.05,
+    "eta_half_below": 20,
+    "eta_decay_above": 100,
+    "hard_negative_weight": 0.3,
+    "live_enabled": true,
+    "live_min_s": 20.0
+  },
+  "ui": {
+    "theme": "dark",
+    "font_size": 13,
+    "show_personal_quadrant": false,
+    "timeline_height": 190
+  }
+}

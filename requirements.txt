@@ -1,0 +1,21 @@
+# 运行期依赖（已装在 .venv 里；换机器时按这个装）
+# pip config 建议指向国内镜像：https://mirrors.aliyun.com/pypi/simple/
+
+PySide6-Essentials>=6.6     # 桌面界面（不是 Web）
+numpy>=1.26                 # 特征计算
+scipy>=1.11                 # 重采样
+soundfile>=0.12             # 音频读写
+sounddevice>=0.4            # 设备枚举
+pyaudiowpatch>=0.2.12       # WASAPI 系统回环录音（Windows）
+openai>=1.30                # 统一接入层：云端/本地一律 OpenAI 兼容协议
+imageio-ffmpeg>=0.5         # 自带 ffmpeg 二进制，用于视频导入（不必系统装 ffmpeg）
+pillow>=10.0                # 截图处理（F3 预留）
+httpx>=0.27                 # 探测用
+pytest>=8.0                 # 测试
+
+# 可选：本地离线转写（不装则自动回落到侧车字幕 / 演示后端）
+# faster-whisper>=1.0
+# 网页视频自动抓取：按浏览器音频会话判断"有没有在放视频"（任何站点，不需要插件）
+pycaw>=20240210             # Windows 音频会话枚举（WASAPI）
+comtypes>=1.4               # pycaw 的 COM 依赖
+psutil>=5.9                 # 进程名/命令行（认浏览器）
