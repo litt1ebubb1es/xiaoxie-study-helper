@@ -469,3 +469,57 @@ def test_model_doc_button_falls_back_to_clipboard(win, monkeypatch):
     win.btn_model_doc.click()
     assert QApplication.clipboard().text() == MODEL_DOC_URL
     assert "怎么导入模型" in win.lbl_llm_status.text() or "链接" in win.lbl_llm_status.text()
+
+
+# ----------------------------------------------------------------------
+# 左栏「一次只看一个收藏夹」
+#
+# 用户的原话：所有课的节平铺在一栏里全挤在左边，而且软件自己编的"第 N 节"
+# 跟他心里的顺序对不上。所以这一栏只显示当前收藏夹的节，且不写节号。
+# ----------------------------------------------------------------------
+def _two_courses(win):
+    cid_a = win.db.ensure_course("概率论 4小时速成")
+    cid_b = win.db.ensure_course("数据结构 期末突击")
+    for t in ("第一讲 样本空间", "第二讲 条件概率"):
+        win.db.create_session(cid_a, title=t, source="demo")
+    win.db.create_session(cid_b, title="树的遍历", source="demo")
+    win._refresh_sessions()
+    return cid_a, cid_b
+
+
+def test_sidebar_shows_one_folder_at_a_time(win):
+    cid_a, cid_b = _two_courses(win)
+    assert win.cb_course.count() == 2
+    # 默认选中"最近用过"的那门，别依赖顺序：显式切到有两节的那门再断言
+    win.cb_course.setCurrentIndex(win.cb_course.findData(cid_a))
+    assert win.session_list.count() == 2
+    titles = [win.session_list.item(i).text() for i in range(win.session_list.count())]
+    assert all("树的遍历" not in t for t in titles)
+
+    win.cb_course.setCurrentIndex(win.cb_course.findData(cid_b))
+    assert win.session_list.count() == 1
+    assert "树的遍历" in win.session_list.item(0).text()
+
+
+def test_sidebar_does_not_number_sections(win):
+    """节号是软件自己数的，不在界面上写出来。"""
+    _two_courses(win)
+    for i in range(win.session_list.count()):
+        head = win.session_list.item(i).text().split(chr(10))[0]
+        assert not head.startswith("第 "), f"又在界面上写节号了: {head}"
+
+
+def test_sessions_follow_import_order_not_idx(win):
+    """同一批导入的节，顺序按插入先后，不按 idx。
+
+    以前的坑：ORDER BY created_at 时一批导入常撞在同一毫秒，
+    排序退化成按节号，顺序看着像乱的。
+    """
+    cid = win.db.ensure_course("顺序课")
+    for i, t in enumerate(["甲", "乙", "丙"], 1):
+        win.db.create_session(cid, title=t, source="demo", idx=10 - i)
+    win._refresh_sessions()          # 导入完会刷新一次，下拉里才有这门课
+    win.cb_course.setCurrentIndex(win.cb_course.findData(cid))
+    got = [win.session_list.item(i).text().split(chr(10))[0]
+           for i in range(win.session_list.count())]
+    assert got == ["甲", "乙", "丙"]

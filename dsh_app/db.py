@@ -603,11 +603,17 @@ class DB:
         return int(row[0]["c"] if row else 0)
 
     def list_sessions(self, course_id: str | None = None) -> list[sqlite3.Row]:
+        """一门课下的节，按导入先后排。
+
+        既不按 idx（那是软件自己数出来的节号，只用于内部区分同名节），
+        也不按 created_at（只精确到毫秒，一批导入往往撞在同一毫秒上，
+        排序会退化成按节号）。rowid 就是插入顺序，等于用户导入的顺序。
+        """
         if course_id:
             return self.query(
-                "SELECT * FROM sessions WHERE course_id=? ORDER BY idx", (course_id,)
+                "SELECT * FROM sessions WHERE course_id=? ORDER BY rowid", (course_id,)
             )
-        return self.query("SELECT * FROM sessions ORDER BY created_at DESC")
+        return self.query("SELECT * FROM sessions ORDER BY rowid DESC")
 
     def delete_session(self, sid: str) -> None:
         """删一节，连带它的段/词/事件/窗口/回看点/屏幕笔记/对话/小测/待答。

@@ -166,6 +166,7 @@ class MainWindow(QMainWindow):
         self._record_started_at = 0.0
         self._chat_msgs: list[dict] = []
         self._quiz_session = ""      # 题目面板属于哪一节：换节要清空，别显示别人的题
+        self._side_course_id = str(self._load_ui_state().get("side_course") or "")
         self._tray: QSystemTrayIcon | None = None
 
         self.setWindowTitle(f"{APP_NAME} v0.2")
@@ -327,7 +328,7 @@ class MainWindow(QMainWindow):
         head_course = QHBoxLayout()
         head_course.setContentsMargins(0, 0, 0, 0)
         head_course.setSpacing(theme.GAP_XS)
-        head_course.addWidget(_section("课程 / 节次"))
+        head_course.addWidget(_section("收藏夹"))
         head_course.addStretch(1)
         self.btn_bili_side = QPushButton("B 站登录")
         self.btn_bili_side.setObjectName("ghost")
@@ -338,6 +339,15 @@ class MainWindow(QMainWindow):
         self.btn_bili_side.clicked.connect(self._on_bili_import)
         head_course.addWidget(self.btn_bili_side)
         sv.addLayout(head_course)
+
+        # 一次只看一个收藏夹：所有课的节平铺在一栏里必然挤成一团，
+        # 而且用户分不清哪一行属于哪门课。用下拉换，选中项记进 ui_state。
+        self.cb_course = QComboBox()
+        self.cb_course.setObjectName("coursePick")
+        self.cb_course.setToolTip("只看这个收藏夹里的课；下面列表只显示它的节")
+        self.cb_course.currentIndexChanged.connect(self._on_course_changed)
+        sv.addWidget(self.cb_course)
+
         self.session_list = QListWidget()
         self.session_list.setObjectName("plain")
         self.session_list.setWordWrap(True)
@@ -785,16 +795,17 @@ class MainWindow(QMainWindow):
                 knots = self.db.get_knots(self.current_session)
             except Exception:  # noqa: BLE001
                 knots = []
-        sess_idx = {}
+        sess_title = {}
         try:
             for s in self.db.list_sessions():
-                sess_idx[str(s["id"])] = int(s["idx"] or 0)
+                sess_title[str(s["id"])] = (s["title"] or "").strip()
         except Exception:  # noqa: BLE001
             pass
         for k in sorted(knots, key=lambda x: x.t_start):
-            n = sess_idx.get(str(k.session_id), 0)
+            where = sess_title.get(str(k.session_id), "")
+            where = f"{where[:14]}　" if where else ""
             gname = {"strong": "强", "medium": "中", "mid": "中"}.get(str(k.grade), "候选")
-            label = f"第 {n} 节 {_hms(k.t_start)}　{gname}回看点　分数 {k.score:.2f}"
+            label = f"{where}{_hms(k.t_start)}　{gname}回看点　分数 {k.score:.2f}"
             self.quiz_knot.addItem(label, int(k.id))
             self.quiz_knot.setItemData(self.quiz_knot.count() - 1,
                                        (k.excerpt or "")[:300], Qt.ToolTipRole)
@@ -1439,10 +1450,10 @@ class MainWindow(QMainWindow):
             for k in knots:
                 solved = self.engine.knot_solved(int(k["id"]))
                 mark = "✅ 已补上" if solved else "⚠️ 未解决"
-                # 标出节次：演示数据里同一讲可能有两份，不标会像重复行
+                # 用节标题代替节号：节号是软件自己数的，用户对不上自己的课程顺序
                 keys = k.keys() if hasattr(k, "keys") else []
-                idx = k["session_idx"] if "session_idx" in keys else None
-                where = f"第 {int(idx)} 节　" if idx else ""
+                stitle = (k["session_title"] if "session_title" in keys else "") or ""
+                where = f"{stitle[:12]}　" if stitle else ""
                 lines.append(
                     f"<li>{where}{_hms(float(k['t_start']))}　分数 "
                     f"{float(k['score'] or 0):.2f}　{mark}"
@@ -1615,6 +1626,11 @@ class MainWindow(QMainWindow):
         没有回退的话，软件刚打开（还没点任何会话）时知识点表会是空的，
         看起来像"数据没了"——实际上只是没选课。
         """
+        pick = getattr(self, "cb_course", None)
+        if pick is not None:
+            cid = pick.currentData()
+            if cid:
+                return cid
         sid = self.current_session
         if not sid and hasattr(self, "session_list"):
             # QListWidget 没有 currentData()（那是 QComboBox 的），要从 currentItem 取
@@ -1637,6 +1653,12 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted or not dlg.chosen:
             return
         res = self.engine.import_series(dlg.course_title, dlg.chosen, source="bili")
+        # 刚导入的这门课要立刻出现在左栏：不切过去的话，用户看到的还是上一门，
+        # 会以为导入失败了。
+        new_cid = self.db.find_course(dlg.course_title)
+        if new_cid:
+            self._side_course_id = new_cid
+            self._save_ui_state({"side_course": new_cid})
         self._refresh_sessions()
         msg = f"已导入 {res['created']} 节到「{dlg.course_title}」"
         if res["skipped"]:
@@ -3256,13 +3278,15 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, ev)
 
     def _refresh_sessions(self) -> None:
+        self._refresh_course_picker()
+        cid = self.cb_course.currentData()
         self.session_list.clear()
-        for r in self.db.list_sessions():
-            course = self.db.query("SELECT title FROM courses WHERE id=?", (r["course_id"],))
-            ct = course[0]["title"] if course else "未命名课程"
+        rows = self.db.list_sessions(cid) if cid else []
+        for r in rows:
             title = (r["title"] or "未命名").strip()
-            head = title if title.startswith("第") else f"第 {r['idx']} 节　{title}"
-            item = QListWidgetItem(f"{head}\n{ct}　{_mmss(r['duration'] or 0)}")
+            # 只写标题和时长。课程名由上面的收藏夹下拉表达（一栏只显示一门），
+            # 节号是软件自己数出来的，不往界面上写。
+            item = QListWidgetItem(title + chr(10) + _mmss(r["duration"] or 0))
             item.setData(Qt.UserRole, r["id"])
             self.session_list.addItem(item)
         # 左栏底部一行统计：一节课的时候左栏很空，这里给个"家底"
@@ -3277,6 +3301,48 @@ class MainWindow(QMainWindow):
         if self.session_list.count() and not self.current_session:
             self.session_list.setCurrentRow(0)
             self._on_session_activated(self.session_list.item(0))
+
+    def _refresh_course_picker(self) -> None:
+        """同步收藏夹下拉：保留当前选中，选项没了就退回第一项。"""
+        want = self._side_course_id or self.cb_course.currentData()
+        rows = self.db.list_courses()
+        self.cb_course.blockSignals(True)
+        self.cb_course.clear()
+        for r in rows:
+            n = int(r["n_sessions"] or 0)
+            label = r["title"] if not n else f"{r['title']}（{n} 节）"
+            self.cb_course.addItem(label, r["id"])
+        idx = self.cb_course.findData(want) if want else -1
+        if idx >= 0:
+            self.cb_course.setCurrentIndex(idx)
+        elif self.cb_course.count():
+            self.cb_course.setCurrentIndex(0)
+        if not self.cb_course.count():
+            # 一门课都没有：给一句话而不是空下拉，顺手禁掉
+            self.cb_course.addItem("还没有课程 — 点上方「B 站登录」导入", None)
+            self.cb_course.setEnabled(False)
+        else:
+            self.cb_course.setEnabled(True)
+        self.cb_course.blockSignals(False)
+        self._side_course_id = self.cb_course.currentData()
+        # 课程名常常很长（"概率论与数理统计（4 小时速成）"），248px 的下拉一定会截断
+        self.cb_course.setToolTip(self.cb_course.currentText()
+                                  or "只看这个收藏夹里的课")
+
+    def _on_course_changed(self, _i: int) -> None:
+        cid = self.cb_course.currentData()
+        if not cid or cid == self._side_course_id:
+            self._side_course_id = cid
+            return
+        self._side_course_id = cid
+        self._save_ui_state({"side_course": cid})
+        # 换了收藏夹，原来选中的节不属于这一栏：清掉让它重选，
+        # 否则 _on_session_activated 会因为 sid 相同直接返回，右侧停在上一门的课。
+        self.current_session = ""
+        self._quiz_session = ""
+        self._refresh_sessions()
+        self._refresh_kb()
+        self._safe_refresh_kp()
 
     def _on_session_activated(self, item: QListWidgetItem) -> None:
         sid = item.data(Qt.UserRole)
@@ -4567,8 +4633,8 @@ def _diagnosis_html(d: dict) -> str:
     if d["related"]:
         out.append("<ul>")
         for r in d["related"][:15]:
-            out.append(f"<li><b>{r['name']}</b> —— 第 {r['session_idx']} 节"
-                       f"《{r['session']}》{r['t']} 也卡过（分数 {r['score']}）</li>")
+            out.append(f"<li><b>{r['name']}</b> —— 《{r['session']}》{r['t']} 也卡过"
+                       f"（分数 {r['score']}）</li>")
         out.append("</ul>")
     else:
         out.append(f"<p style='color:{theme.TEXT_3}'>本课程其他节次中还没有同类回看点。</p>")
