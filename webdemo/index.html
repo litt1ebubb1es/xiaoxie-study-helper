@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小蟹学习助手 · 在线演示</title>
+<meta name="description" content="小蟹学习助手：录下网课，找出你真正卡住的那一段，换个讲法只重讲它。这是只读演示快照。">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cellipse cx='22' cy='25' rx='15' ry='11' fill='none' stroke='%23F2621B' stroke-width='3'/%3E%3Ccircle cx='15.5' cy='21' r='4.4' fill='none' stroke='%23F2621B' stroke-width='2.6'/%3E%3Ccircle cx='28.5' cy='21' r='4.4' fill='none' stroke='%23F2621B' stroke-width='2.6'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <div class="brand">
+      <svg class="crab" viewBox="0 0 44 44" aria-hidden="true">
+        <ellipse cx="22" cy="25" rx="15" ry="11" fill="none" stroke="currentColor" stroke-width="2.6"/>
+        <circle cx="15.5" cy="21" r="4.6" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <circle cx="28.5" cy="21" r="4.6" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <circle cx="15.5" cy="21" r="1.5" fill="currentColor"/>
+        <circle cx="28.5" cy="21" r="1.5" fill="currentColor"/>
+        <path d="M9 15 L4 9 M35 15 L40 9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">小蟹学习助手</span>
+    </div>
+    <nav class="nav">
+      <a href="#videos">视频</a>
+      <a href="#timeline">时间轴</a>
+      <a href="#knots">回看点</a>
+      <a href="#reword">换讲法</a>
+      <a href="#diag">诊断</a>
+      <a href="#quiz">小测</a>
+    </nav>
+    <span class="chip">只读演示</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <p class="eyebrow" data-reveal="soft">本地运行的 Windows 网课助手 · 演示快照</p>
+    <h1 data-reveal>你从哪一刻<br>开始跟不上了？</h1>
+    <p class="lede" data-reveal style="transition-delay:80ms">
+      它不替你记笔记，也不替你答题。它只看两件事：<b>你怎么播放</b>（回退、变速、暂停、切走）
+      和<b>老师在讲什么</b>，然后指出真正卡住的那几段，只重讲那几段。
+    </p>
+    <div class="kpis" id="kpis" data-reveal style="transition-delay:150ms"></div>
+    <p class="hero-note" data-reveal style="transition-delay:220ms">
+      下面是这台机器在<b>合成课程</b>上跑出来的真实结果：分析、诊断、出题都由软件自己的算法算出，
+      数据不是手写的。重讲那栏是离线规则版（这次没接模型）。
+    </p>
+  </section>
+
+  <div id="videos" class="videos" hidden></div>
+
+  <section class="card" id="timeline">
+    <div class="card-head">
+      <div>
+        <h2>这一节的时间轴</h2>
+        <p class="sub" id="timeline-sub"></p>
+      </div>
+      <div class="chart-tools">
+        <div class="legend">
+          <span><i class="sw line-accent"></i>认知负荷 L</span>
+          <span><i class="sw line-muted"></i>行为信号 B</span>
+          <span><i class="sw band"></i>回看点</span>
+        </div>
+        <button class="replay" id="replay" type="button" title="重播这条曲线的生成过程">
+          <span class="i">↻</span> 重播
+        </button>
+      </div>
+    </div>
+    <div class="chart-box">
+      <canvas id="chart" height="300"></canvas>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <p class="hint">鼠标移到曲线上看那 60 秒在讲什么；点橙色色带跳到对应回看点。</p>
+  </section>
+
+  <section id="knots">
+    <div class="sec-head" data-reveal="soft">
+      <h2>回看点<span class="count" id="knot-count"></span></h2>
+      <p class="sub">每一条都要能说清"为什么标记这里"——证据比结论重要。</p>
+    </div>
+    <div class="knot-list" id="knot-list"></div>
+  </section>
+
+  <section class="card" id="reword">
+    <div class="card-head">
+      <div>
+        <h2>换个讲法，只重讲这一段</h2>
+        <p class="sub">左边是原课里那几十秒，右边是重新组织的讲法。</p>
+      </div>
+      <div class="tabs" id="reword-tabs"></div>
+    </div>
+    <div class="two-col">
+      <div class="pane">
+        <h3>原课摘录</h3>
+        <blockquote id="reword-src"></blockquote>
+        <p class="pane-meta" id="reword-src-meta"></p>
+        <div id="reword-src-terms"></div>
+      </div>
+      <div class="pane pane-accent">
+        <h3>换个讲法 <span class="tag" id="reword-tag"></span></h3>
+        <div class="prose" id="reword-dst"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="diag">
+    <div class="card-head">
+      <div>
+        <h2>诊断：不是"再看一遍"，是"缺了哪块"</h2>
+        <p class="sub">回看点按时间分布、跨节重复出现的根因、以及推荐的复习顺序。</p>
+      </div>
+    </div>
+
+    <div class="diag-grid">
+      <div class="diag-block">
+        <h3>回看点落在一节课的什么位置</h3>
+        <div class="strip" id="dist-strip" aria-label="回看点位置"></div>
+        <p class="hint" id="dist-hint"></p>
+
+        <h3 style="margin-top:26px">建议的复习顺序</h3>
+        <ol class="plan" id="plan-list"></ol>
+      </div>
+      <div class="diag-block">
+        <h3>跨节根因</h3>
+        <div class="tbl-scroll"><table class="tbl" id="root-tbl"></table></div>
+        <p class="hint">同一门课里反复卡在同一个概念上，才是真缺前置，不是这一节没听懂。
+          这份演示用同一段合成讲解种了三节，所以几行数值会一样——真实课堂里它们会分开。</p>
+      </div>
+    </div>
+
+    <details class="fold">
+      <summary>跨节关联的回看点（同一门课的其他讲）</summary>
+      <div class="rel" id="related-list"></div>
+    </details>
+  </section>
+
+  <section class="card" id="quiz">
+    <div class="card-head">
+      <div>
+        <h2>小测：题目必须能在原文里查到</h2>
+        <p class="sub">出题时逐条回原文核对出处，查不到的当场作废——宁可少一题，也不拿噪声当证据。</p>
+      </div>
+      <div class="quiz-score" id="quiz-score">0 / 0</div>
+    </div>
+    <div id="quiz-list"></div>
+  </section>
+
+  <section class="card about">
+    <h2>这是什么</h2>
+    <div class="about-grid">
+      <div>
+        <h3>它解决的问题</h3>
+        <p>网课最大的浪费不是"没看完"，是<b>看完了却没发现自己在哪断了</b>。进度条走到 100%，
+           中间那三段其实是靠拖过去的。小蟹把这些时刻从播放行为里捞出来，配上讲解内容的特征，
+           再告诉你缺的是哪个前置概念。</p>
+      </div>
+      <div>
+        <h3>用到的 AI 能力</h3>
+        <ul class="clean">
+          <li>语音转写（云端或本地 faster-whisper）</li>
+          <li>大模型诊断与「换个讲法」生成</li>
+          <li>视觉模型读板书、幻灯片（截图那一路）</li>
+          <li>知识点抽取与前置关系推断</li>
+          <li>带引用的检索问答</li>
+        </ul>
+      </div>
+      <div>
+        <h3>这份演示的边界</h3>
+        <ul class="clean">
+          <li>只读快照：不能录音、不能上传、不能改设置</li>
+          <li>数据是<b>合成课程</b>，不是任何人的真实课堂</li>
+          <li>重讲为离线规则版（未接模型），不是模型生成</li>
+          <li id="about-gen"></li>
+        </ul>
+      </div>
+    </div>
+    <p class="about-foot">
+      完整软件是 Windows 桌面程序，本地跑、数据不出机器：
+      <a id="repo-link" href="#" target="_blank" rel="noopener">GitHub 仓库与免安装包</a>
+    </p>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span id="foot-meta">小蟹学习助手 · 演示快照</span>
+    <span class="dot">·</span>
+    <span>演示数据为合成内容，不含任何真实用户数据</span>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+<button class="totop" id="totop" type="button" aria-label="回到顶部">↑</button>
+</body>
+</html>

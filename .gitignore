@@ -36,3 +36,10 @@ desktop.ini
 # ---- 临时
 tmp/
 *.log
+# 演示视频母版与转码产物（25 MB 级，走服务器/Release，不进仓库）
+webdemo/video/*.mp4
+简易演示.mp4
+tmp_frames/
+tmp_deploy/
+tmp_demo/
+docs/video/out/*.mp4
