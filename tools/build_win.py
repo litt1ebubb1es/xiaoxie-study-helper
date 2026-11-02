@@ -201,6 +201,10 @@ def _post(dist_dir: Path) -> None:
 
 
 def _zip(dist_dir: Path) -> Path:
+    # 直接跑 tools\build_win.py 时 sys.path[0] 是 tools\，根目录不在里面，
+    # `import dsh_app` 会 ModuleNotFoundError —— 打 zip 这一步就白跑了（v0.1.0 踩过）。
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     from dsh_app import __version__          # 版本号跟着包走，不用手改
 
     # zip 名用 ASCII：中文名在 HTTP 下载路径 / Release 资产里会被吞掉

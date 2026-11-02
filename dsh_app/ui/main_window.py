@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from .. import bili
+from .. import __version__, bili
 from .. import capture as cap
 from .. import maintenance
 from ..cognitive import EVENT_KIND_CN, QUADRANT_CN
@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
         self._side_course_id = str(self._load_ui_state().get("side_course") or "")
         self._tray: QSystemTrayIcon | None = None
 
-        self.setWindowTitle(f"{APP_NAME} v0.2")
+        self.setWindowTitle(f"{APP_NAME} v{__version__}")
         self.setWindowIcon(icons.app_icon())
         self.resize(1440, 900)
         theme.apply_font(QApplication.instance() or QApplication([]))
@@ -300,7 +300,7 @@ class MainWindow(QMainWindow):
         title = QLabel("小蟹学习助手")
         title.setObjectName("brand")
         names.addWidget(title)
-        ver = QLabel("v0.2 · 端侧")
+        ver = QLabel(f"v{__version__} · 本地运行")
         ver.setObjectName("muted")
         names.addWidget(ver)
         brand.addLayout(names)
