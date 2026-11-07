@@ -152,7 +152,7 @@ function renderVideos() {
       </p>
     </section>`;
   }).join("") + `
-    <p class="videos-foot">两支片子合计约 ${total.toFixed(1)} MB。视频是软件在本地跑的真实画面，
+    <p class="videos-foot">${list.length} 支片子合计约 ${total.toFixed(1)} MB。视频是软件在本地跑的真实画面，
       不含任何登录凭证；画面里的网课页面来自 B 站公开课程。</p>`;
 
   list.forEach((v, i) => {

@@ -43,3 +43,9 @@ tmp_frames/
 tmp_deploy/
 tmp_demo/
 docs/video/out/*.mp4
+
+# 原始录屏素材（50 MB 级，只在本地转码用；成片走 webdemo/video/ 或服务器）
+视频2.mp4
+
+# DSH 知识库（本机工作区状态，不属于项目）
+.dsh-knowledge/
